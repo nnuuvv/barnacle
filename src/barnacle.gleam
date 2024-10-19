@@ -15,15 +15,20 @@ pub opaque type Barnacle(error) {
   Barnacle(
     discover_nodes: fn() -> Result(List(atom.Atom), error),
     poll_interval: Int,
+    listener: Option(Subject(BarnacleResponse(error))),
   )
 }
 
 fn default_barnacle() -> Barnacle(a) {
-  Barnacle(discover_nodes: fn() { Ok([]) }, poll_interval: 5000)
+  Barnacle(discover_nodes: fn() { Ok([]) }, poll_interval: 5000, listener: None)
 }
 
 pub fn local_epmd() -> Barnacle(Nil) {
   Barnacle(..default_barnacle(), discover_nodes: local_epmd.discover_nodes)
+}
+
+pub fn epmd(nodes: List(atom.Atom)) -> Barnacle(Nil) {
+  Barnacle(..default_barnacle(), discover_nodes: fn() { Ok(nodes) })
 }
 
 pub fn with_poll_interval(
@@ -31,6 +36,13 @@ pub fn with_poll_interval(
   poll_interval: Int,
 ) -> Barnacle(error) {
   Barnacle(..barnacle, poll_interval: poll_interval)
+}
+
+pub fn with_listener(
+  barnacle: Barnacle(error),
+  listener: Subject(BarnacleResponse(error)),
+) -> Barnacle(error) {
+  Barnacle(..barnacle, listener: Some(listener))
 }
 
 fn spec(
@@ -49,6 +61,7 @@ fn spec(
 
         let timer =
           process.send_after(self, barnacle.poll_interval, Refresh(None))
+
         actor.Ready(
           selector: selector,
           state: State(self:, barnacle:, timer: Some(timer)),
@@ -81,19 +94,6 @@ pub fn child_spec(
   supervisor.worker(fn(_) { start(barnacle, parent) })
 }
 
-pub fn main() {
-  let self = process.new_subject()
-  let assert Ok(child) =
-    local_epmd()
-    |> start(None)
-
-  process.send(child, Refresh(Some(self)))
-
-  let assert Ok(msg) = process.receive(self, 10_000)
-
-  process.sleep_forever()
-}
-
 pub type RefreshResult(error) =
   Result(List(atom.Atom), RefreshError(error))
 
@@ -101,6 +101,12 @@ pub opaque type Message(error) {
   Refresh(return: Option(Subject(RefreshResult(error))))
   Stop(return: Option(Subject(Nil)))
   Shutdown(return: Option(Subject(Nil)))
+}
+
+pub type BarnacleResponse(error) {
+  RefreshResponse(RefreshResult(error))
+  StopResponse(Nil)
+  ShutdownResponse(Nil)
 }
 
 type State(error) {
@@ -130,20 +136,25 @@ fn handle_message(message: Message(error), state: State(error)) {
   case message {
     Refresh(return) -> {
       let refresh_result = refresh_nodes(barnacle)
-      send_response(return, refresh_result)
 
+      cancel_timer(timer)
       let timer =
         process.send_after(self, barnacle.poll_interval, Refresh(None))
+
+      send_response(return, refresh_result)
+      send_response(barnacle.listener, RefreshResponse(refresh_result))
       actor.continue(State(..state, timer: Some(timer)))
     }
     Stop(return) -> {
-      option.map(timer, process.cancel_timer)
+      cancel_timer(timer)
       send_response(return, Nil)
+      send_response(barnacle.listener, StopResponse(Nil))
       actor.continue(State(..state, timer: None))
     }
     Shutdown(return) -> {
-      option.map(timer, process.cancel_timer)
+      cancel_timer(timer)
       send_response(return, Nil)
+      send_response(barnacle.listener, ShutdownResponse(Nil))
       actor.Stop(process.Normal)
     }
   }
@@ -154,6 +165,11 @@ fn send_response(maybe_client: Option(Subject(a)), response: a) -> Nil {
     Some(client) -> process.send(client, response)
     None -> Nil
   }
+}
+
+fn cancel_timer(timer: Option(process.Timer)) -> Nil {
+  option.map(timer, process.cancel_timer)
+  Nil
 }
 
 fn refresh_nodes(barnacle: Barnacle(error)) -> RefreshResult(error) {
@@ -174,33 +190,35 @@ fn refresh_nodes(barnacle: Barnacle(error)) -> RefreshResult(error) {
   let nodes_to_add = set.difference(available_nodes, current_nodes)
   let nodes_to_remove = set.difference(current_nodes, available_nodes)
 
-  let connect_results =
-    nodes_to_add
-    |> set.to_list
-    |> list.map(fn(node) {
-      case node.connect(node) {
-        Ok(_) -> Ok(Nil)
-        Error(err) -> Error(#(node, err))
-      }
-    })
-    |> result_apply
-
+  let connect_results = connect_nodes(nodes_to_add |> set.to_list)
   use _ <- result.try(connect_results |> result.map_error(ConnectError))
 
-  let disconnect_results =
-    nodes_to_remove
-    |> set.to_list
-    |> list.map(fn(node) {
-      case disconnect_node(node) {
-        Ok(_) -> Ok(Nil)
-        Error(err) -> Error(#(node, err))
-      }
-    })
-    |> result_apply
-
+  let disconnect_results = disconnect_nodes(nodes_to_remove |> set.to_list)
   use _ <- result.try(disconnect_results |> result.map_error(DisconnectError))
 
   Ok(node.visible() |> list.map(node.to_atom))
+}
+
+fn connect_nodes(nodes: List(atom.Atom)) {
+  nodes
+  |> list.map(fn(node) {
+    case node.connect(node) {
+      Ok(_) -> Ok(Nil)
+      Error(err) -> Error(#(node, err))
+    }
+  })
+  |> result_apply
+}
+
+fn disconnect_nodes(nodes: List(atom.Atom)) {
+  nodes
+  |> list.map(fn(node) {
+    case disconnect_node(node) {
+      Ok(_) -> Ok(Nil)
+      Error(err) -> Error(#(node, err))
+    }
+  })
+  |> result_apply
 }
 
 fn result_apply(results: List(Result(a, b))) -> Result(List(a), List(b)) {
