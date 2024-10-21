@@ -252,6 +252,7 @@ welcome, though try to keep dependencies to a minimum.
 
 ## TODO
 
+- [ ] Tests!
 - [ ] Add new strategies
   - [ ] Kubernetes
   - [ ] Kubernetes with DNS
