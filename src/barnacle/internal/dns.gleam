@@ -50,6 +50,7 @@ fn format_ip_address(ip: IpAddress) -> String {
         }
       })
       |> string.join(":")
+      |> string.lowercase
     }
   }
 }

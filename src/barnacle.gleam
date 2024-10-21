@@ -10,7 +10,6 @@ import gleam/otp/actor
 import gleam/otp/supervisor
 import gleam/result
 import gleam/set
-import gleam/string
 
 // ----- Setup functions ----- //
 
@@ -23,7 +22,7 @@ pub opaque type Barnacle(error) {
   )
 }
 
-fn default_barnacle() -> Barnacle(a) {
+fn default_barnacle() -> Barnacle(error) {
   Barnacle(
     name: None,
     strategy: default_strategy(),
@@ -268,32 +267,20 @@ fn spec(
   parent: Option(Subject(Subject(Message(error)))),
 ) {
   actor.Spec(init_timeout: 10_000, loop: handle_message, init: fn() {
-    case refresh_nodes(barnacle) {
-      Ok(_) -> {
-        option.map(barnacle.name, process.register(process.self(), _))
-        let self = process.new_subject()
-        let selector =
-          process.new_selector()
-          |> process.selecting(self, function.identity)
+    option.map(barnacle.name, process.register(process.self(), _))
+    let self = process.new_subject()
+    let selector =
+      process.new_selector()
+      |> process.selecting(self, function.identity)
 
-        option.map(parent, process.send(_, self))
+    option.map(parent, process.send(_, self))
 
-        let timer =
-          process.send_after(self, barnacle.poll_interval, Refresh(None))
+    let timer = process.send_after(self, barnacle.poll_interval, Refresh(None))
 
-        actor.Ready(
-          selector: selector,
-          state: State(self:, barnacle:, timer: Some(timer)),
-        )
-      }
-      Error(err) ->
-        actor.Failed(case err {
-          ConnectError(_) -> "Failed to connect to nodes"
-          DisconnectError(_) -> "Failed to disconnect from nodes"
-          StrategyError(err) ->
-            "Failed to discover nodes: " <> string.inspect(err)
-        })
-    }
+    actor.Ready(
+      selector: selector,
+      state: State(self:, barnacle:, timer: Some(timer)),
+    )
   })
 }
 
@@ -325,6 +312,7 @@ fn refresh_nodes(barnacle: Barnacle(error)) -> RefreshResult(error) {
   let current_nodes =
     current_nodes_list
     |> set.from_list
+    |> set.delete(node.self() |> node.to_atom)
 
   let nodes_to_add = set.difference(available_nodes, current_nodes)
   let nodes_to_remove = set.difference(current_nodes, available_nodes)

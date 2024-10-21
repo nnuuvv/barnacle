@@ -1,6 +1,6 @@
 -module(barnacle_ffi).
 
--export([list_local_nodes/0, disconnect_from_node/1]).
+-export([list_local_nodes/0, disconnect_from_node/1, lookup_a/1, lookup_aaaa/1]).
 
 disconnect_from_node(Node) ->
   case disconnect_node(Node) of
