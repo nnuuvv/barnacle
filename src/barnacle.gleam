@@ -196,20 +196,21 @@ type State(error) {
   )
 }
 
-pub fn start(
-  barnacle: Barnacle(error),
-  parent: Option(Subject(Subject(Message(error)))),
-) {
+pub fn start(barnacle: Barnacle(error)) {
   barnacle
-  |> spec(parent)
+  |> spec(None)
   |> actor.start_spec
 }
 
 pub fn child_spec(
   barnacle: Barnacle(error),
-  parent: Option(Subject(Subject(Message(error)))),
+  parent: Subject(Subject(Message(error))),
 ) {
-  supervisor.worker(fn(_) { start(barnacle, parent) })
+  supervisor.worker(fn(_) {
+    barnacle
+    |> spec(Some(parent))
+    |> actor.start_spec
+  })
 }
 
 pub fn refresh(
