@@ -295,12 +295,8 @@ fn cancel_timer(timer: Option(process.Timer)) -> Nil {
 }
 
 fn refresh_nodes(barnacle: Barnacle(error)) -> RefreshResult(error) {
-  use available_nodes <- result.try(
+  use available_nodes_list <- result.try(
     barnacle.strategy.discover_nodes()
-    |> result.map(fn(nodes) {
-      set.from_list(nodes)
-      |> set.delete(node.self() |> node.to_atom)
-    })
     |> result.map_error(StrategyError),
   )
 
@@ -309,10 +305,17 @@ fn refresh_nodes(barnacle: Barnacle(error)) -> RefreshResult(error) {
     |> result.map_error(StrategyError),
   )
 
+  let self = node.self() |> node.to_atom
+
+  let available_nodes =
+    available_nodes_list
+    |> set.from_list
+    |> set.delete(self)
+
   let current_nodes =
     current_nodes_list
     |> set.from_list
-    |> set.delete(node.self() |> node.to_atom)
+    |> set.delete(self)
 
   let nodes_to_add = set.difference(available_nodes, current_nodes)
   let nodes_to_remove = set.difference(current_nodes, available_nodes)
