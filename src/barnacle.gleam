@@ -1,3 +1,4 @@
+import barnacle/internal/dns
 import barnacle/internal/local_epmd
 import gleam/erlang/atom
 import gleam/erlang/node
@@ -15,6 +16,7 @@ import gleam/string
 
 pub opaque type Barnacle(error) {
   Barnacle(
+    name: Option(atom.Atom),
     strategy: Strategy(error),
     poll_interval: Int,
     listener: Option(Subject(BarnacleResponse(error))),
@@ -22,7 +24,16 @@ pub opaque type Barnacle(error) {
 }
 
 fn default_barnacle() -> Barnacle(a) {
-  Barnacle(strategy: default_strategy(), poll_interval: 5000, listener: None)
+  Barnacle(
+    name: None,
+    strategy: default_strategy(),
+    poll_interval: 5000,
+    listener: None,
+  )
+}
+
+pub fn with_name(barnacle: Barnacle(error), name: String) -> Barnacle(error) {
+  Barnacle(..barnacle, name: Some(name |> atom.create_from_string))
 }
 
 pub fn with_poll_interval(
@@ -151,6 +162,16 @@ pub fn epmd(nodes: List(atom.Atom)) -> Barnacle(Nil) {
   )
 }
 
+pub fn dns(basename: String, hostname_query: String) -> Barnacle(Nil) {
+  Barnacle(
+    ..default_barnacle(),
+    strategy: Strategy(
+      ..default_strategy(),
+      discover_nodes: fn() { dns.discover_nodes(basename, hostname_query) },
+    ),
+  )
+}
+
 // ----- Actor ----- //
 
 pub type RefreshResult(error) =
@@ -249,6 +270,7 @@ fn spec(
   actor.Spec(init_timeout: 10_000, loop: handle_message, init: fn() {
     case refresh_nodes(barnacle) {
       Ok(_) -> {
+        option.map(barnacle.name, process.register(process.self(), _))
         let self = process.new_subject()
         let selector =
           process.new_selector()
@@ -318,6 +340,8 @@ fn refresh_nodes(barnacle: Barnacle(error)) -> RefreshResult(error) {
   barnacle.strategy.list_nodes()
   |> result.map_error(StrategyError)
 }
+
+// ----- Utils ----- //
 
 fn result_apply(results: List(Result(a, b))) -> Result(List(a), List(b)) {
   case result.partition(results) {
