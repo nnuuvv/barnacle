@@ -10,9 +10,12 @@ import gleam/otp/actor
 import gleam/otp/supervisor
 import gleam/result
 import gleam/set
+import gleam/string
 
 // ----- Setup functions ----- //
 
+/// The entrypoint for creating a barnacle. Generic over the error returned by
+/// strategy-specific functions.
 pub opaque type Barnacle(error) {
   Barnacle(
     name: Option(atom.Atom),
@@ -31,10 +34,12 @@ fn default_barnacle() -> Barnacle(error) {
   )
 }
 
+/// Give the barnacle actor process a custom name.
 pub fn with_name(barnacle: Barnacle(error), name: String) -> Barnacle(error) {
   Barnacle(..barnacle, name: Some(name |> atom.create_from_string))
 }
 
+/// Set the poll interval for the barnacle actor. Defaults to 5000ms.
 pub fn with_poll_interval(
   barnacle: Barnacle(error),
   poll_interval: Int,
@@ -42,6 +47,8 @@ pub fn with_poll_interval(
   Barnacle(..barnacle, poll_interval: poll_interval)
 }
 
+/// Set the listener subject for your barnacle. This will be notified whenever
+/// the barnacle refreshes, is paused, or is shutdown.
 pub fn with_listener(
   barnacle: Barnacle(error),
   listener: Subject(BarnacleResponse(error)),
@@ -51,6 +58,7 @@ pub fn with_listener(
 
 // ----- Strategies ----- //
 
+/// A custom strategy for discovering and connecting to nodes.
 pub opaque type Strategy(error) {
   Strategy(
     discover_nodes: fn() -> Result(List(atom.Atom), error),
@@ -62,6 +70,7 @@ pub opaque type Strategy(error) {
   )
 }
 
+/// An error that can occur when disconnecting from a node.
 pub type NodeDisconnectError {
   FailedToDisconnect
   LocalNodeIsNotAlive
@@ -76,12 +85,16 @@ fn default_strategy() -> Strategy(error) {
   )
 }
 
+/// Create a new custom strategy with a single function to discover nodes.
 pub fn new_strategy(
   discover_nodes: fn() -> Result(List(atom.Atom), error),
 ) -> Strategy(error) {
   Strategy(..default_strategy(), discover_nodes:)
 }
 
+/// Add a custom node connection function to your strategy.
+/// Useful if you want to use an alternative to Distributed Erlang, such as
+/// [Partisan](https://github.com/lasp-lang/partisan).
 pub fn with_connect_nodes_function(
   strategy: Strategy(error),
   connect_nodes: fn(List(atom.Atom)) ->
@@ -90,6 +103,9 @@ pub fn with_connect_nodes_function(
   Strategy(..strategy, connect_nodes:)
 }
 
+/// Add a custom node disconnection function to your strategy.
+/// Useful if you want to use an alternative to Distributed Erlang, such as
+/// [Partisan](https://github.com/lasp-lang/partisan).
 pub fn with_disconnect_nodes_function(
   strategy: Strategy(error),
   disconnect_nodes: fn(List(atom.Atom)) ->
@@ -98,6 +114,9 @@ pub fn with_disconnect_nodes_function(
   Strategy(..strategy, disconnect_nodes:)
 }
 
+/// Add a custom node listing function to your strategy.
+/// Useful if you want to use an alternative to Distributed Erlang, such as
+/// [Partisan](https://github.com/lasp-lang/partisan).
 pub fn with_list_nodes_function(
   strategy: Strategy(error),
   list_nodes: fn() -> Result(List(atom.Atom), error),
@@ -140,10 +159,21 @@ fn disconnect_nodes(nodes: List(atom.Atom)) {
 
 // ----- Built-in Strategies ----- //
 
+/// Create a barnacle with a custom strategy. This requires at least one function
+/// to discover nodes.
+///
+/// You can also supply your own functions for connecting, disconnecting, and
+/// listing nodes. If these are not supplied, the default Distributed Erlang
+/// functions will be used.
+///
+/// Barnacles are generic over their error type, known as the strategy error.
+/// Your strategy functions may use this to return custom errors.
 pub fn custom(strategy: Strategy(error)) -> Barnacle(error) {
   Barnacle(..default_barnacle(), strategy:)
 }
 
+/// Create a barnacle that uses the local EPMD to discover nodes. This will discover
+/// nodes on the same hostname as the current node.
 pub fn local_epmd() -> Barnacle(Nil) {
   Barnacle(
     ..default_barnacle(),
@@ -154,6 +184,8 @@ pub fn local_epmd() -> Barnacle(Nil) {
   )
 }
 
+/// Create a barnacle that connects to a known list of nodes. These may be
+/// remote nodes, or nodes on the same hostname as the current node.
 pub fn epmd(nodes: List(atom.Atom)) -> Barnacle(Nil) {
   Barnacle(
     ..default_barnacle(),
@@ -161,6 +193,12 @@ pub fn epmd(nodes: List(atom.Atom)) -> Barnacle(Nil) {
   )
 }
 
+/// Create a barnacle that discovers nodes using DNS. The first argument is the
+/// basename of the nodes. Currently, Barnacle only supports connecting to nodes
+/// with the same basename.
+///
+/// The second argument is the hostname to query against. Both A and AAAA records
+/// will be queried.
 pub fn dns(basename: String, hostname_query: String) -> Barnacle(Nil) {
   Barnacle(
     ..default_barnacle(),
@@ -173,18 +211,21 @@ pub fn dns(basename: String, hostname_query: String) -> Barnacle(Nil) {
 
 // ----- Actor ----- //
 
+/// The result of a barnacle refresh.
 pub type RefreshResult(error) =
   Result(List(atom.Atom), RefreshError(error))
 
+/// A message that can be sent to a barnacle actor.
 pub opaque type Message(error) {
   Refresh(return: Option(Subject(RefreshResult(error))))
-  Stop(return: Option(Subject(Nil)))
+  Pause(return: Option(Subject(Nil)))
   Shutdown(return: Option(Subject(Nil)))
 }
 
+/// A response from a barnacle actor. This will be sent to the listener subject.
 pub type BarnacleResponse(error) {
   RefreshResponse(RefreshResult(error))
-  StopResponse(Nil)
+  PauseResponse(Nil)
   ShutdownResponse(Nil)
 }
 
@@ -196,12 +237,15 @@ type State(error) {
   )
 }
 
+/// Start a barnacle actor. This will start the actor, and begin polling for
+/// nodes.
 pub fn start(barnacle: Barnacle(error)) {
   barnacle
   |> spec(None)
   |> actor.start_spec
 }
 
+/// Create a child spec for your barnacle for use in a supervision tree.
 pub fn child_spec(
   barnacle: Barnacle(error),
   parent: Subject(Subject(Message(error))),
@@ -213,21 +257,26 @@ pub fn child_spec(
   })
 }
 
-pub fn refresh(
-  subject: Subject(Message(error)),
-  return: Option(Subject(RefreshResult(error))),
-) {
-  process.send(subject, Refresh(return))
+/// Refresh a barnacle actor. This will attempt to connect to new nodes, and
+/// disconnect from nodes that are no longer available.
+///
+/// This will reset the poll timer.
+pub fn refresh(subject: Subject(Message(error)), timeout: Int) {
+  actor.call(subject, fn(subj) { Refresh(Some(subj)) }, timeout)
 }
 
-pub fn stop(subject: Subject(Message(error)), return: Option(Subject(Nil))) {
-  process.send(subject, Stop(return))
+/// Pause a barnacle actor. Sending a [`refresh`](#refresh) will restart the actor.
+pub fn pause(subject: Subject(Message(error)), timeout: Int) {
+  actor.call(subject, fn(subj) { Pause(Some(subj)) }, timeout)
 }
 
-pub fn shutdown(subject: Subject(Message(error)), return: Option(Subject(Nil))) {
-  process.send(subject, Shutdown(return))
+/// Shutdown a barnacle actor. This will stop the actor, and stop any future
+/// refreshes.
+pub fn shutdown(subject: Subject(Message(error)), timeout: Int) {
+  actor.call(subject, fn(subj) { Shutdown(Some(subj)) }, timeout)
 }
 
+/// The error type for a barnacle refresh.
 pub type RefreshError(error) {
   StrategyError(error)
   ConnectError(List(#(atom.Atom, node.ConnectError)))
@@ -248,10 +297,10 @@ fn handle_message(message: Message(error), state: State(error)) {
       send_response(barnacle.listener, RefreshResponse(refresh_result))
       actor.continue(State(..state, timer: Some(timer)))
     }
-    Stop(return) -> {
+    Pause(return) -> {
       cancel_timer(timer)
       send_response(return, Nil)
-      send_response(barnacle.listener, StopResponse(Nil))
+      send_response(barnacle.listener, PauseResponse(Nil))
       actor.continue(State(..state, timer: None))
     }
     Shutdown(return) -> {
@@ -340,4 +389,26 @@ fn result_apply(results: List(Result(a, b))) -> Result(List(a), List(b)) {
     #(vals, []) -> Ok(vals)
     #(_, errs) -> Error(errs)
   }
+}
+
+/// Get the basename of a node.
+///
+/// Useful for getting the basename of the current node for use with the DNS
+/// strategy.
+///
+/// Example:
+/// ```gleam
+/// import barnacle
+/// import gleam/erlang/node
+///
+/// pub fn main() {
+///   let assert Ok(basename) = barnacle.get_node_basename(node.self())
+/// }
+/// ```
+pub fn get_node_basename(node: node.Node) -> Result(String, Nil) {
+  node
+  |> node.to_atom
+  |> atom.to_string
+  |> string.split_once("@")
+  |> result.map(fn(tuple) { tuple.0 })
 }
