@@ -257,6 +257,15 @@ pub fn child_spec(
   })
 }
 
+/// Run the refresh function once only. This will not start the actor, and will
+/// not do any polling.
+///
+/// In this case, most configuration options are irrelevant and will be ignored.
+pub fn run_once(barnacle: Barnacle(error)) {
+  barnacle
+  |> refresh_nodes
+}
+
 /// Refresh a barnacle actor. This will attempt to connect to new nodes, and
 /// disconnect from nodes that are no longer available.
 ///
