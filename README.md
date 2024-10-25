@@ -89,6 +89,29 @@ pub fn main() {
 }
 ```
 
+### Run the refresh function once
+
+If you don't need any sort of polling, or want to manage your the refresh lifecycle
+yourself, you can call the `run_once` function to run the refresh function a single
+time.
+
+In this case, most of the configuration options will be ignored.
+
+```gleam
+import barnacle
+
+pub fn main() {
+  // Configure your Barnacle
+  let barnacle =
+    barnacle.local_epmd()
+
+  // Run the refresh function once
+  barnacle.run_once(barnacle)
+
+  // Continue your program...
+}
+```
+
 ## Strategies
 
 Barnacle ships with a few built-in strategies, but you can also supply your own by
