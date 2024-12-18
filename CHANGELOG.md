@@ -9,7 +9,10 @@
     Thanks to @tsoughter in #3.
 
 - Exposes the `barnacle/dns` and `barnacle/local_epmd` modules.
+
   - Users can now use the functions in these modules to create custom strategies.
+
+- Fixed some README examples, with help from @RLaursen in #5. Thanks!
 
 ## v1.1.0 - 2024-10-25
 
