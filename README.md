@@ -52,7 +52,7 @@ pub fn main() {
   let self = process.new_subject()
 
   // Start the child process under a supervisor
-  let barnacle_worker = barnacle.child_spec(barnacle, None)
+  let barnacle_worker = barnacle.child_spec(barnacle, self)
   let assert Ok(_) = supervisor.start(supervisor.add(_, barnacle_worker))
 
   // Get a subject to send messages to the child process
