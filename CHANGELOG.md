@@ -6,7 +6,7 @@
 
   - This uses the `search` option, which will allow things like `service.namespace`
     to be used in Kubernetes, as opposed to `service.namespace.svc.cluster.local`.
-    Thanks to @tsoughter in #3.
+    Thanks to @tsloughter in #3.
 
 - Exposes the `barnacle/dns` and `barnacle/local_epmd` modules.
 
