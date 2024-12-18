@@ -46,7 +46,6 @@ lookup(Name, Type, Timeout) when is_binary(Name) ->
   end.
 
 lookup_throws(Name, Type, Timeout) when is_binary(Name) ->
-  io:format("Name: ~p~n", [Name]),
   case inet_res:getbyname(binary_to_list(Name), Type, Timeout) of
     {ok, #hostent{h_addr_list = Addrs}} ->
       {ok, Addrs};
