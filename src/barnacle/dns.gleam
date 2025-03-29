@@ -43,7 +43,7 @@ pub fn dns_lookup(
 ) -> Result(List(IpAddress), LookupError) {
   use a_records <- result.try(lookup_a(hostname, timeout))
 
-  let a_records =
+  let a_records: List(IpAddress) =
     a_records
     |> list.map(fn(ip) {
       let #(a, b, c, d) = ip
@@ -52,14 +52,15 @@ pub fn dns_lookup(
 
   use aaaa_records <- result.try(lookup_aaaa(hostname, timeout))
 
-  let aaaa_records =
+  let aaaa_records: List(IpAddress) =
     aaaa_records
     |> list.map(fn(ip) {
       let #(a, b, c, d, e, f, g, h) = ip
       IpV6(a, b, c, d, e, f, g, h)
     })
 
-  Ok(list.concat([a_records, aaaa_records]))
+
+  Ok(list.append(a_records, aaaa_records))
 }
 
 fn format_ip_address(ip: IpAddress) -> String {
